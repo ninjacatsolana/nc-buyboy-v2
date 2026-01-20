@@ -88,5 +88,4 @@ app.get("/test-alert", (req, res) => {
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`NC BUYBOT V2 LIVE on port ${PORT}`);
-
 });
