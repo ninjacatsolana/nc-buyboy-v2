@@ -113,6 +113,16 @@ app.post("/webhook/buy", (req, res) => {
 
   res.status(200).send("ok");
 });
+app.get("/routes", (req, res) => {
+  const routes = [];
+  app._router.stack.forEach((layer) => {
+    if (layer.route && layer.route.path) {
+      const methods = Object.keys(layer.route.methods).join(",").toUpperCase();
+      routes.push(`${methods} ${layer.route.path}`);
+    }
+  });
+  res.type("text/plain").send(routes.join("\n"));
+});
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
