@@ -113,14 +113,9 @@ app.post("/webhook/buy", (req, res) => {
 
   res.status(200).send("ok");
 });
-app.get("/routes", (req, res) => {
-  const routes = [];
-  app._router.stack.forEach((layer) => {
-    if (layer.route && layer.route.path) {
-      const methods = Object.keys(layer.route.methods).join(",").toUpperCase();
-      routes.push(`${methods} ${layer.route.path}`);
-    }
-  });
+app.get("/v999", (req, res) => {
+  res.status(200).send("v999-live");
+});
   res.type("text/plain").send(routes.join("\n"));
 });
 
