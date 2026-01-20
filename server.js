@@ -98,10 +98,13 @@ app.get("/test-alert", (req, res) => {
   lastEvent = { text: "Test Buy Detected" };
   res.send("ok");
 });
+
+// sanity check route
 app.get("/webhook/buy", (req, res) => {
   res.status(200).send("buy route is here");
 });
 
+// webhook trigger
 app.post("/webhook/buy", (req, res) => {
   const { amount } = req.body || {};
 
@@ -118,13 +121,9 @@ app.post("/webhook/buy", (req, res) => {
   return res.status(200).send("ok");
 });
 
-
-  res.status(200).send("ok");
-});
+// version check
 app.get("/v999", (req, res) => {
   res.status(200).send("v999-live");
-});
-  res.type("text/plain").send(routes.join("\n"));
 });
 
 const PORT = process.env.PORT || 3000;
