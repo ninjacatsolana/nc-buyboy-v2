@@ -19,6 +19,9 @@ app.get("/health", (req, res) => {
 app.get("/ping-v3", (req, res) => {
   res.status(200).send("pong-v3");
 });
+app.get("/webhook/buy", (req, res) => {
+  res.status(200).send("webhook buy GET is alive");
+});
 
 
 
