@@ -19,9 +19,7 @@ app.get("/health", (req, res) => {
 app.get("/ping-v3", (req, res) => {
   res.status(200).send("pong-v3");
 });
-app.get("/webhook/buy", (req, res) => {
-  res.status(200).send("webhook buy GET is alive");
-});
+
 
 
 
@@ -109,7 +107,8 @@ app.get("/webhook/buy", (req, res) => {
 
 // webhook trigger
 app.post("/webhook/buy", (req, res) => {
-  const { amount } = req.body || {};
+ const { amount } = req.body || {};
+
 
   if (amount === undefined || amount === null) {
     return res.status(400).send("missing amount");
@@ -124,19 +123,22 @@ app.post("/webhook/buy", (req, res) => {
   return res.status(200).send("ok");
 });
 
+// route check
+app.get("/routes-check", (req, res) => {
+  res.status(200).send("routes ok v3");
+});
+
+// webhook buy
+app.post("/webhook/buy", (req, res) => {
+  const { amount } = req.body || {};
+
+ 
 // version check
 app.get("/v999", (req, res) => {
   res.status(200).send("v999-live");
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`NC BUYBOT V2 LIVE on port ${PORT}`);
-});
-app.get("/routes-check", (req, res) => {
-  res.status(200).send("routes check v3");
-});
-
+// ONLY ONE listen, at the very bottom
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`NC BUYBOT V2 LIVE on port ${PORT}`);
