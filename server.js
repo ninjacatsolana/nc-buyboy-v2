@@ -1,127 +1,247 @@
+// server.js
+"use strict";
+
+require("dotenv").config();
+
 const express = require("express");
 const path = require("path");
 
 const app = express();
 
-app.use(express.json({ limit: "1mb" }));
+/**
+ * Config
+ */
+const PORT = Number(process.env.PORT || 3000);
+const WEBHOOK_PATH = process.env.WEBHOOK_PATH || "/webhooks/helius";
+const WEBHOOK_AUTH = process.env.WEBHOOK_AUTH || ""; // must match Authorization header
+const MAX_EVENTS = Number(process.env.MAX_EVENTS || 50);
+
+// Optional filters, leave empty to accept all
+const NC_MINT = (process.env.NC_MINT || "").trim(); // token mint to focus on
+const WATCH_WALLET = (process.env.WATCH_WALLET || "").trim(); // wallet to focus on
+
+/**
+ * In memory event store and SSE clients
+ */
+const recentEvents = [];
+const sseClients = new Set();
+
+function pushEvent(evt) {
+  recentEvents.unshift(evt);
+  if (recentEvents.length > MAX_EVENTS) recentEvents.length = MAX_EVENTS;
+
+  const payload = `data: ${JSON.stringify(evt)}\n\n`;
+  for (const res of sseClients) {
+    try {
+      res.write(payload);
+    } catch (e) {
+      // ignore, cleanup happens on close
+    }
+  }
+}
+
+/**
+ * Middleware
+ */
+app.set("trust proxy", true);
+
+// Helius posts JSON
+app.use(express.json({ limit: "2mb" }));
+
+/**
+ * Static overlay
+ */
 app.use(express.static(path.join(__dirname, "public")));
-app.use("/assets", express.static(path.join(__dirname, "assets")));
 
-let lastEvent = null;
-
-// sanity
+/**
+ * Health
+ */
 app.get("/health", (req, res) => {
-  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
-  res.setHeader("Pragma", "no-cache");
-  res.setHeader("Expires", "0");
-  res.setHeader("Surrogate-Control", "no-store");
-  res.status(200).send("ok-v3");
+  res.status(200).json({
+    ok: true,
+    name: "nc-buyboy-v2",
+    time: new Date().toISOString(),
+    webhookPath: WEBHOOK_PATH,
+    eventCount: recentEvents.length,
+  });
 });
 
-app.get("/ping-v3", (req, res) => {
-  res.status(200).send("pong-v3");
+/**
+ * Get recent events
+ */
+app.get("/events", (req, res) => {
+  res.status(200).json({
+    ok: true,
+    count: recentEvents.length,
+    events: recentEvents,
+  });
 });
 
-app.get("/routes-check", (req, res) => {
-  res.status(200).send("routes ok v3");
+/**
+ * SSE stream for overlays
+ */
+app.get("/events/stream", (req, res) => {
+  res.status(200);
+  res.setHeader("Content-Type", "text/event-stream");
+  res.setHeader("Cache-Control", "no-cache");
+  res.setHeader("Connection", "keep-alive");
+
+  // Tell client we are alive
+  res.write(`event: hello\ndata: ${JSON.stringify({ ok: true })}\n\n`);
+
+  // Send a snapshot
+  res.write(`event: snapshot\ndata: ${JSON.stringify(recentEvents)}\n\n`);
+
+  sseClients.add(res);
+
+  req.on("close", () => {
+    sseClients.delete(res);
+  });
 });
 
-// overlay page
-app.get("/overlay", (req, res) => {
-  res.status(200).send(`
-    <html>
-      <head>
-        <meta charset="utf-8" />
-        <title>NC Overlay</title>
-        <style>
-          body {
-            margin: 0;
-            background: transparent;
-            overflow: hidden;
-            font-family: Arial, sans-serif;
-          }
-          #box {
-            position: absolute;
-            bottom: 80px;
-            left: 50%;
-            transform: translateX(-50%);
-            padding: 20px 32px;
-            border-radius: 12px;
-            background: rgba(0,0,0,0.75);
-            color: white;
-            font-size: 42px;
-            display: none;
-          }
-        </style>
-      </head>
-      <body>
-        <div id="box"></div>
-        <script>
-          async function poll() {
-            try {
-              const res = await fetch("/event");
-              const data = await res.json();
+/**
+ * Helper, tries to extract a meaningful "buy" signal from Helius enhanced payloads,
+ * but also works fine as a generic event logger.
+ */
+function normalizeHeliusItem(item) {
+  // Helius enhanced webhook items often include fields like:
+  // signature, type, description, timestamp, tokenTransfers, nativeTransfers, accountData, events, etc.
+  const signature = item.signature || item.transactionSignature || item.txSignature || null;
+  const type = item.type || item.transactionType || "UNKNOWN";
+  const description = item.description || item.summary || null;
 
-              if (data && data.text) {
-                const box = document.getElementById("box");
-                box.textContent = data.text;
-                box.style.display = "block";
+  const timestamp =
+    item.timestamp ||
+    item.blockTime ||
+    (item.slot ? null : null) ||
+    Math.floor(Date.now() / 1000);
 
-                setTimeout(() => {
-                  box.style.display = "none";
-                }, 5000);
-              }
-            } catch (e) {}
+  // Token and SOL movement best effort
+  let ncTokenDelta = null;
+  let solDelta = null;
 
-            setTimeout(poll, 1000);
-          }
+  const tokenTransfers = Array.isArray(item.tokenTransfers) ? item.tokenTransfers : [];
+  const nativeTransfers = Array.isArray(item.nativeTransfers) ? item.nativeTransfers : [];
 
-          poll();
-        </script>
-      </body>
-    </html>
-  `);
-});
+  // Optional filtering by mint and wallet
+  const mintFilterOn = Boolean(NC_MINT);
+  const walletFilterOn = Boolean(WATCH_WALLET);
 
-// overlay poll endpoint
-app.get("/event", (req, res) => {
-  if (lastEvent) {
-    const e = lastEvent;
-    lastEvent = null;
-    return res.json(e);
+  // Token delta, sum amounts for the mint, optionally scoped to wallet
+  if (tokenTransfers.length) {
+    let sum = 0;
+    let found = false;
+
+    for (const t of tokenTransfers) {
+      const mint = (t.mint || "").trim();
+      if (mintFilterOn && mint !== NC_MINT) continue;
+
+      const from = (t.fromUserAccount || t.fromTokenAccount || "").trim();
+      const to = (t.toUserAccount || t.toTokenAccount || "").trim();
+
+      if (walletFilterOn && from !== WATCH_WALLET && to !== WATCH_WALLET) continue;
+
+      const amt = Number(t.tokenAmount ?? t.amount ?? 0);
+      if (!Number.isFinite(amt) || amt === 0) continue;
+
+      // If WATCH_WALLET is set, treat incoming as positive, outgoing as negative
+      if (walletFilterOn) {
+        if (to === WATCH_WALLET) sum += amt;
+        if (from === WATCH_WALLET) sum -= amt;
+      } else {
+        // No wallet context, just sum absolute movement
+        sum += Math.abs(amt);
+      }
+
+      found = true;
+    }
+
+    if (found) ncTokenDelta = sum;
   }
-  res.json(null);
-});
 
-// quick manual trigger
-app.get("/test-alert", (req, res) => {
-  lastEvent = { text: "Test Buy Detected" };
-  res.send("ok");
-});
+  // SOL delta, sum lamports for wallet if provided, otherwise sum absolute movement
+  if (nativeTransfers.length) {
+    let sumSol = 0;
+    let found = false;
 
-// IMPORTANT: browser GET tester for the webhook route
-app.get("/webhook/buy", (req, res) => {
-  res.status(200).send("webhook buy endpoint is alive, send POST to trigger");
-});
+    for (const n of nativeTransfers) {
+      const from = (n.fromUserAccount || "").trim();
+      const to = (n.toUserAccount || "").trim();
 
-// REAL webhook endpoint
-app.post("/webhook/buy", (req, res) => {
-  const amount = req.body && req.body.amount;
+      if (walletFilterOn && from !== WATCH_WALLET && to !== WATCH_WALLET) continue;
 
-  if (amount === undefined || amount === null) {
-    return res.status(400).send("missing amount");
+      const lamports = Number(n.amount ?? 0);
+      if (!Number.isFinite(lamports) || lamports === 0) continue;
+
+      const sol = lamports / 1e9;
+
+      if (walletFilterOn) {
+        if (to === WATCH_WALLET) sumSol += sol;
+        if (from === WATCH_WALLET) sumSol -= sol;
+      } else {
+        sumSol += Math.abs(sol);
+      }
+
+      found = true;
+    }
+
+    if (found) solDelta = sumSol;
   }
 
-  const formatted = Number(amount).toLocaleString();
-
-  lastEvent = {
-    text: `Bought ${formatted} NC , The Dojo Grows`
+  return {
+    id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+    receivedAt: new Date().toISOString(),
+    signature,
+    type,
+    description,
+    timestamp,
+    ncTokenDelta,
+    solDelta,
+    raw: item, // keep full payload for debugging
   };
+}
 
-  return res.status(200).send("ok");
+/**
+ * Helius webhook receiver
+ * Verification method: set a secret value as the Authorization header when creating the webhook,
+ * Helius echoes it back to your endpoint, verify it here. :contentReference[oaicite:1]{index=1}
+ */
+app.post(WEBHOOK_PATH, (req, res) => {
+  if (WEBHOOK_AUTH) {
+    const auth = req.get("Authorization") || "";
+    if (auth !== WEBHOOK_AUTH) {
+      return res.status(401).json({ ok: false, error: "Unauthorized webhook" });
+    }
+  }
+
+  const body = req.body;
+
+  const items = Array.isArray(body) ? body : [body];
+
+  // Normalize and optionally filter out empty items
+  let accepted = 0;
+  for (const item of items) {
+    if (!item || typeof item !== "object") continue;
+
+    const evt = normalizeHeliusItem(item);
+
+    // If you want strict filtering, enable it by setting NC_MINT or WATCH_WALLET
+    // and require at least one meaningful delta.
+    const strict = String(process.env.STRICT_FILTER || "").toLowerCase() === "true";
+    if (strict && NC_MINT && evt.ncTokenDelta === null) continue;
+    if (strict && WATCH_WALLET && evt.solDelta === null && evt.ncTokenDelta === null) continue;
+
+    pushEvent(evt);
+    accepted += 1;
+  }
+
+  res.status(200).json({ ok: true, accepted });
 });
 
-const PORT = process.env.PORT || 3000;
+/**
+ * Start
+ */
 app.listen(PORT, () => {
-  console.log(`NC BUYBOT V2 LIVE on port ${PORT}`);
+  console.log(`nc-buyboy-v2 listening on port ${PORT}`);
+  console.log(`Webhook path: ${WEBHOOK_PATH}`);
 });
