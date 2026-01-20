@@ -10,8 +10,9 @@ app.use("/assets", express.static(path.join(__dirname, "assets")));
 let lastEvent = null;
 
 app.get("/health", (req, res) => {
-  res.status(200).send("ok");
+  res.status(200).send("ok-v2");
 });
+
 
 app.get("/overlay", (req, res) => {
   res.status(200).send(`
