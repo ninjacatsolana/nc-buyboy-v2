@@ -128,18 +128,3 @@ app.get("/routes-check", (req, res) => {
   res.status(200).send("routes ok v3");
 });
 
-// webhook buy
-app.post("/webhook/buy", (req, res) => {
-  const { amount } = req.body || {};
-
- 
-// version check
-app.get("/v999", (req, res) => {
-  res.status(200).send("v999-live");
-});
-
-// ONLY ONE listen, at the very bottom
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log(`NC BUYBOT V2 LIVE on port ${PORT}`);
-});
