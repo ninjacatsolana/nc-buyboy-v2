@@ -10,8 +10,16 @@ app.use("/assets", express.static(path.join(__dirname, "assets")));
 let lastEvent = null;
 
 app.get("/health", (req, res) => {
-  res.status(200).send("ok-v2");
+  res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+  res.setHeader("Surrogate-Control", "no-store");
+  res.status(200).send("ok-v3");
 });
+app.get("/ping-v3", (req, res) => {
+  res.status(200).send("pong-v3");
+});
+
 
 
 
