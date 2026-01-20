@@ -94,6 +94,10 @@ app.get("/test-alert", (req, res) => {
   lastEvent = { text: "Test Buy Detected" };
   res.send("ok");
 });
+app.get("/webhook/buy", (req, res) => {
+  res.status(200).send("buy route is here");
+});
+
 app.post("/webhook/buy", (req, res) => {
   const { amount } = req.body;
 
