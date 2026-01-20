@@ -94,6 +94,21 @@ app.get("/test-alert", (req, res) => {
   lastEvent = { text: "Test Buy Detected" };
   res.send("ok");
 });
+app.post("/webhook/buy", (req, res) => {
+  const { amount } = req.body;
+
+  if (!amount) {
+    return res.status(400).send("missing amount");
+  }
+
+  const formatted = Number(amount).toLocaleString();
+
+  lastEvent = {
+    text: `Bought ${formatted} NC · The Dojo Grows`
+  };
+
+  res.status(200).send("ok");
+});
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
