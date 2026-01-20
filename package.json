@@ -1,8 +1,7 @@
 {
-  "name": "nc-buybot-v2",
+  "name": "nc-buyboy-v2",
   "version": "1.0.0",
   "main": "server.js",
-  "type": "commonjs",
   "scripts": {
     "start": "node server.js"
   },
@@ -10,4 +9,3 @@
     "express": "^4.19.2"
   }
 }
-
