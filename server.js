@@ -79,6 +79,10 @@ app.get("/overlay", (req, res) => {
     </html>
   `);
 });
+app.post("/webhook/buy-test", (req, res) => {
+  console.log("HIT /webhook/buy-test", req.headers["content-type"], req.body);
+  res.status(200).json({ ok: true, got: req.body });
+});
 
 app.get("/event", (req, res) => {
   if (lastEvent) {
