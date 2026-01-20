@@ -99,9 +99,9 @@ app.get("/webhook/buy", (req, res) => {
 });
 
 app.post("/webhook/buy", (req, res) => {
-  const { amount } = req.body;
+  const { amount } = req.body || {};
 
-  if (!amount) {
+  if (amount === undefined || amount === null) {
     return res.status(400).send("missing amount");
   }
 
@@ -110,6 +110,10 @@ app.post("/webhook/buy", (req, res) => {
   lastEvent = {
     text: `Bought ${formatted} NC · The Dojo Grows`
   };
+
+  return res.status(200).send("ok");
+});
+
 
   res.status(200).send("ok");
 });
